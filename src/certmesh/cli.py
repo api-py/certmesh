@@ -681,11 +681,12 @@ def vault_pki_issue(
             out.mkdir(parents=True, exist_ok=True)
             (out / f"{cn}_cert.pem").write_text(result["certificate"])
             if result.get("private_key"):
-                key_path = out / f"{cn}_key.pem"
-                key_path.write_text(result["private_key"])
                 import os
 
-                os.chmod(key_path, 0o600)
+                key_path = out / f"{cn}_key.pem"
+                fd = os.open(key_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+                with os.fdopen(fd, "w") as kf:
+                    kf.write(result["private_key"])
             if result.get("ca_chain"):
                 chain = result["ca_chain"]
                 if isinstance(chain, list):
@@ -894,7 +895,13 @@ def acm_describe(ctx: click.Context, arn: str, region: str | None) -> None:
 
 @acm.command("export")
 @click.option("--arn", required=True, help="Certificate ARN.")
-@click.option("--passphrase", required=True, help="Passphrase for private key export.")
+@click.option(
+    "--passphrase",
+    required=True,
+    prompt=True,
+    hide_input=True,
+    help="Passphrase for private key export.",
+)
 @click.option("--output-dir", default=None, help="Directory to write PEM files.")
 @click.option("--region", default=None, help="AWS region override.")
 @click.pass_context
@@ -921,12 +928,13 @@ def acm_export(
             out = Path(output_dir)
             out.mkdir(parents=True, exist_ok=True)
             sid = acm_client.arn_short_id(arn)
-            (out / f"{sid}_cert.pem").write_text(bundle.certificate_pem)
-            key_path = out / f"{sid}_key.pem"
-            key_path.write_text(bundle.private_key_pem)
             import os
 
-            os.chmod(key_path, 0o600)
+            (out / f"{sid}_cert.pem").write_text(bundle.certificate_pem)
+            key_path = out / f"{sid}_key.pem"
+            fd = os.open(key_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, "w") as kf:
+                kf.write(bundle.private_key_pem)
             if bundle.chain_pem:
                 (out / f"{sid}_chain.pem").write_text(bundle.chain_pem)
             click.echo(f"Exported to {out}/")

@@ -113,20 +113,22 @@ def build_csr(
 ) -> x509.CertificateSigningRequest:
     """Build and sign a Certificate Signing Request."""
     try:
-        builder = x509.CertificateSigningRequestBuilder().subject_name(
-            x509.Name(
-                [
-                    x509.NameAttribute(NameOID.COUNTRY_NAME, subject.country),
-                    x509.NameAttribute(NameOID.STATE_OR_PROVINCE_NAME, subject.state),
-                    x509.NameAttribute(NameOID.LOCALITY_NAME, subject.locality),
-                    x509.NameAttribute(NameOID.ORGANIZATION_NAME, subject.organisation),
-                    x509.NameAttribute(
-                        NameOID.ORGANIZATIONAL_UNIT_NAME, subject.organisational_unit
-                    ),
-                    x509.NameAttribute(NameOID.COMMON_NAME, subject.common_name),
-                ]
+        name_attrs: list[x509.NameAttribute] = []
+        if subject.country:
+            name_attrs.append(x509.NameAttribute(NameOID.COUNTRY_NAME, subject.country))
+        if subject.state:
+            name_attrs.append(x509.NameAttribute(NameOID.STATE_OR_PROVINCE_NAME, subject.state))
+        if subject.locality:
+            name_attrs.append(x509.NameAttribute(NameOID.LOCALITY_NAME, subject.locality))
+        if subject.organisation:
+            name_attrs.append(x509.NameAttribute(NameOID.ORGANIZATION_NAME, subject.organisation))
+        if subject.organisational_unit:
+            name_attrs.append(
+                x509.NameAttribute(NameOID.ORGANIZATIONAL_UNIT_NAME, subject.organisational_unit)
             )
-        )
+        name_attrs.append(x509.NameAttribute(NameOID.COMMON_NAME, subject.common_name))
+
+        builder = x509.CertificateSigningRequestBuilder().subject_name(x509.Name(name_attrs))
 
         san_entries: list[x509.GeneralName] = [
             x509.DNSName(name) for name in subject.san_dns_names
@@ -284,8 +286,9 @@ def _write_to_filesystem(
         cert_path.write_text(bundle.certificate_pem, encoding="utf-8")
         logger.info("Wrote certificate PEM to '%s'.", cert_path)
 
-        key_path.write_text(bundle.private_key_pem, encoding="utf-8")
-        os.chmod(key_path, 0o600)
+        fd = os.open(key_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as kf:
+            kf.write(bundle.private_key_pem)
         logger.info("Wrote private key PEM to '%s' (mode 0600).", key_path)
 
         result = {
