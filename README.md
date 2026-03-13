@@ -27,7 +27,7 @@ cd certmesh
 pip install -e ".[dev]"
 ```
 
-**Requires Python 3.10, 3.11, 3.12, or 3.13.**
+**Requires Python 3.10, 3.11, 3.12, 3.13, or 3.14.**
 
 ## Quick Start
 
@@ -200,8 +200,8 @@ GitHub Actions runs on every push and PR:
 
 | Job | Matrix | Description |
 |-----|--------|-------------|
-| **lint** | Python 3.10 - 3.13 | `ruff check` + `ruff format --check` |
-| **test** | Python 3.10 - 3.13 | `pytest` with coverage |
+| **lint** | Python 3.10 - 3.14 | `ruff check` + `ruff format --check` |
+| **test** | Python 3.10 - 3.14 | `pytest` with coverage |
 | **build** | Python 3.12 | `python -m build` |
 
 ## License

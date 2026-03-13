@@ -498,7 +498,7 @@ def search_certificates(
             params["filters[serial_number]"] = serial_number
         if status:
             params["filters[status]"] = status
-        resp = session.get(url, params=params)
+        resp = session.get(url, params=params, timeout=_request_timeout(session))
         _raise_for_digicert_error(resp)
         return resp.json()
 
@@ -808,7 +808,7 @@ def order_and_await_certificate(
     @cb_dec
     @retry_dec
     def _check_order_status() -> JsonDict:
-        resp = session.get(status_url)
+        resp = session.get(status_url, timeout=_request_timeout(session))
         _raise_for_digicert_error(resp)
         return resp.json()
 

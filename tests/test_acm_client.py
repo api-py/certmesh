@@ -1107,9 +1107,59 @@ class TestRevokePrivateCertificate:
 
 class TestListPrivateCertificates:
     @patch("certmesh.acm_client._build_acm_client")
-    def test_returns_private_certs_only(
+    def test_returns_private_certs_for_matching_ca(
         self, mock_build: MagicMock, acm_cfg_with_ca: JsonDict
     ) -> None:
+        mock_client = MagicMock()
+        mock_build.return_value = mock_client
+
+        mock_paginator = MagicMock()
+        mock_client.get_paginator.return_value = mock_paginator
+        mock_paginator.paginate.return_value = [
+            {
+                "CertificateSummaryList": [
+                    {
+                        "CertificateArn": "arn:cert/1",
+                        "DomainName": "private.example.com",
+                        "Type": "PRIVATE",
+                        "CertificateAuthorityArn": _SAMPLE_CA_ARN,
+                        "Status": "ISSUED",
+                    },
+                    {
+                        "CertificateArn": "arn:cert/2",
+                        "DomainName": "public.example.com",
+                        "Type": "AMAZON_ISSUED",
+                        "Status": "ISSUED",
+                    },
+                    {
+                        "CertificateArn": "arn:cert/3",
+                        "DomainName": "private2.example.com",
+                        "Type": "PRIVATE",
+                        "CertificateAuthorityArn": _SAMPLE_CA_ARN,
+                        "Status": "ISSUED",
+                    },
+                    {
+                        "CertificateArn": "arn:cert/4",
+                        "DomainName": "other-ca.example.com",
+                        "Type": "PRIVATE",
+                        "CertificateAuthorityArn": "arn:aws:acm-pca:us-east-1:000:ca/other",
+                        "Status": "ISSUED",
+                    },
+                ],
+            },
+        ]
+
+        results = list_private_certificates(acm_cfg_with_ca)
+
+        assert len(results) == 2
+        assert all(r["Type"] == "PRIVATE" for r in results)
+        assert all(r["CertificateAuthorityArn"] == _SAMPLE_CA_ARN for r in results)
+
+    @patch("certmesh.acm_client._build_acm_client")
+    def test_describe_fallback_when_ca_arn_absent(
+        self, mock_build: MagicMock, acm_cfg_with_ca: JsonDict
+    ) -> None:
+        """When CertificateAuthorityArn is absent, describe_certificate is used."""
         mock_client = MagicMock()
         mock_build.return_value = mock_client
 
@@ -1126,24 +1176,54 @@ class TestListPrivateCertificates:
                     },
                     {
                         "CertificateArn": "arn:cert/2",
-                        "DomainName": "public.example.com",
-                        "Type": "AMAZON_ISSUED",
-                        "Status": "ISSUED",
-                    },
-                    {
-                        "CertificateArn": "arn:cert/3",
-                        "DomainName": "private2.example.com",
+                        "DomainName": "other-ca.example.com",
                         "Type": "PRIVATE",
                         "Status": "ISSUED",
                     },
                 ],
             },
         ]
+        mock_client.describe_certificate.side_effect = [
+            {"Certificate": {"CertificateAuthorityArn": _SAMPLE_CA_ARN}},
+            {"Certificate": {"CertificateAuthorityArn": "arn:aws:acm-pca:other-ca"}},
+        ]
 
         results = list_private_certificates(acm_cfg_with_ca)
 
-        assert len(results) == 2
-        assert all(r["Type"] == "PRIVATE" for r in results)
+        assert len(results) == 1
+        assert results[0]["CertificateArn"] == "arn:cert/1"
+        assert mock_client.describe_certificate.call_count == 2
+
+    @patch("certmesh.acm_client._build_acm_client")
+    def test_describe_fallback_skips_on_error(
+        self, mock_build: MagicMock, acm_cfg_with_ca: JsonDict
+    ) -> None:
+        """When describe_certificate fails, the certificate is skipped."""
+        mock_client = MagicMock()
+        mock_build.return_value = mock_client
+
+        mock_paginator = MagicMock()
+        mock_client.get_paginator.return_value = mock_paginator
+        mock_paginator.paginate.return_value = [
+            {
+                "CertificateSummaryList": [
+                    {
+                        "CertificateArn": "arn:cert/1",
+                        "DomainName": "private.example.com",
+                        "Type": "PRIVATE",
+                        "Status": "ISSUED",
+                    },
+                ],
+            },
+        ]
+        mock_client.describe_certificate.side_effect = _make_client_error(
+            code="AccessDeniedException",
+            message="Access denied",
+        )
+
+        results = list_private_certificates(acm_cfg_with_ca)
+
+        assert len(results) == 0
 
     @patch("certmesh.acm_client._build_acm_client")
     def test_max_items_limits(self, mock_build: MagicMock, acm_cfg_with_ca: JsonDict) -> None:
@@ -1159,6 +1239,7 @@ class TestListPrivateCertificates:
                         "CertificateArn": f"arn:cert/{i}",
                         "DomainName": f"p{i}.example.com",
                         "Type": "PRIVATE",
+                        "CertificateAuthorityArn": _SAMPLE_CA_ARN,
                         "Status": "ISSUED",
                     }
                     for i in range(5)

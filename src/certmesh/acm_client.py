@@ -61,7 +61,6 @@ JsonDict = dict[str, Any]
 
 _VALID_KEY_ALGORITHMS: frozenset[str] = frozenset(
     {
-        "RSA_1024",
         "RSA_2048",
         "RSA_3072",
         "RSA_4096",
@@ -953,11 +952,28 @@ def list_private_certificates(
         for page in page_iterator:
             for item in page.get("CertificateSummaryList", []):
                 # Filter to certificates issued by the target private CA.
-                # The CertificateArn contains the CA identifier, but the
-                # most reliable method is checking via describe_certificate.
-                # However, for efficiency we first check the Type field.
                 if item.get("Type") != "PRIVATE":
                     continue
+                # When the summary includes CertificateAuthorityArn, use it
+                # to scope results to the requested CA.  If the field is
+                # absent (older API responses) we fall back to a
+                # describe_certificate call for an authoritative check.
+                item_ca = item.get("CertificateAuthorityArn")
+                if item_ca:
+                    if item_ca != effective_ca_arn:
+                        continue
+                else:
+                    try:
+                        detail = client.describe_certificate(
+                            CertificateArn=item["CertificateArn"],
+                        )
+                        cert_detail = detail.get("Certificate", {})
+                        if cert_detail.get("CertificateAuthorityArn") != effective_ca_arn:
+                            continue
+                    except botocore.exceptions.ClientError:
+                        # If we cannot verify the CA, skip the certificate
+                        # rather than returning an unverified result.
+                        continue
                 results.append(item)
                 if max_items is not None and len(results) >= max_items:
                     return results
