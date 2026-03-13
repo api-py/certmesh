@@ -173,11 +173,20 @@ class TestValidateConfig:
         with pytest.raises(ConfigurationError, match="auth_method"):
             validate_config(cfg)
 
-    def test_missing_venafi_base_url_raises(self) -> None:
+    def test_missing_venafi_base_url_raises_when_configured(self) -> None:
         cfg = build_config()
         cfg["vault"]["url"] = "https://vault.example.com"
+        # base_url is only required when venafi is explicitly configured
+        cfg["venafi"]["auth_method"] = "ldap"
         with pytest.raises(ConfigurationError, match="venafi.base_url"):
             validate_config(cfg)
+
+    def test_missing_venafi_base_url_ok_when_not_configured(self) -> None:
+        """venafi.base_url should not be required when using only ACM/DigiCert."""
+        cfg = build_config()
+        cfg["vault"]["url"] = "https://vault.example.com"
+        # default auth_method='oauth' and output='filesystem' => not configured
+        validate_config(cfg)  # should NOT raise
 
     def test_invalid_digicert_output_dest_raises(self) -> None:
         cfg = build_config()

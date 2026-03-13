@@ -142,7 +142,7 @@ def _build_session(
             "Accept": "application/json",
         }
     )
-    session.timeout = int(digicert_cfg.get("timeout_seconds", 30))  # type: ignore[assignment]
+    session.certmesh_timeout = int(digicert_cfg.get("timeout_seconds", 30))  # type: ignore[attr-defined]
     return session
 
 
@@ -169,20 +169,11 @@ def _raise_for_digicert_error(resp: requests.Response) -> None:
         raise DigiCertOrderNotFoundError(f"DigiCert resource not found (HTTP 404): {body}")
 
     if status == 429:
-        retry_after = resp.headers.get("Retry-After")
-        if retry_after:
-            try:
-                wait_seconds = int(retry_after)
-                logger.warning(
-                    "DigiCert rate limit hit. Sleeping %d seconds (Retry-After).",
-                    wait_seconds,
-                )
-                time.sleep(wait_seconds)
-            except ValueError:
-                logger.warning(
-                    "DigiCert rate limit hit. Non-numeric Retry-After: '%s'.",
-                    retry_after,
-                )
+        retry_after = resp.headers.get("Retry-After", "")
+        logger.warning(
+            "DigiCert rate limit hit (HTTP 429). Retry-After: '%s'.",
+            retry_after,
+        )
         raise DigiCertRateLimitError(f"DigiCert rate limit exceeded (HTTP 429): {body}")
 
     raise DigiCertAPIError(
@@ -190,6 +181,11 @@ def _raise_for_digicert_error(resp: requests.Response) -> None:
         status_code=status,
         body=body,
     )
+
+
+def _request_timeout(session: requests.Session) -> int:
+    """Return the timeout value stored on the session during construction."""
+    return getattr(session, "certmesh_timeout", 30)
 
 
 def _base_url(digicert_cfg: JsonDict) -> str:
@@ -253,25 +249,28 @@ def _extract_pem_from_zip(zip_bytes: bytes) -> tuple[bytes, bytes | None]:
             f"Downloaded content is not a valid ZIP archive: {exc}"
         ) from exc
 
-    pem_files: list[str] = [n for n in zf.namelist() if n.lower().endswith(".pem")]
-    if not pem_files:
-        raise DigiCertDownloadError("ZIP archive from DigiCert does not contain any .pem files.")
+    with zf:
+        pem_files: list[str] = [n for n in zf.namelist() if n.lower().endswith(".pem")]
+        if not pem_files:
+            raise DigiCertDownloadError(
+                "ZIP archive from DigiCert does not contain any .pem files."
+            )
 
-    cert_pem: bytes | None = None
-    chain_parts: list[bytes] = []
+        cert_pem: bytes | None = None
+        chain_parts: list[bytes] = []
 
-    for name in sorted(pem_files):
-        content = zf.read(name)
-        lower = name.lower()
-        # Heuristic: the server cert file usually does not contain "intermediate"
-        # or "chain" or "ca" in its name.
-        if any(kw in lower for kw in ("intermediate", "chain", "root", "ca-bundle")):
-            chain_parts.append(content)
-        elif cert_pem is None:
-            cert_pem = content
-        else:
-            # Additional PEMs that aren't obviously chain go to chain.
-            chain_parts.append(content)
+        for name in sorted(pem_files):
+            content = zf.read(name)
+            lower = name.lower()
+            # Heuristic: the server cert file usually does not contain "intermediate"
+            # or "chain" or "ca" in its name.
+            if any(kw in lower for kw in ("intermediate", "chain", "root", "ca-bundle")):
+                chain_parts.append(content)
+            elif cert_pem is None:
+                cert_pem = content
+            else:
+                # Additional PEMs that aren't obviously chain go to chain.
+                chain_parts.append(content)
 
     if cert_pem is None:
         raise DigiCertDownloadError(
@@ -390,7 +389,7 @@ def list_issued_certificates(
         }
         if status:
             params["filters[status]"] = status
-        resp = session.get(url, params=params)
+        resp = session.get(url, params=params, timeout=_request_timeout(session))
         _raise_for_digicert_error(resp)
         return resp.json()
 
@@ -582,7 +581,7 @@ def describe_certificate(
     @cb_dec
     @retry_dec
     def _fetch() -> JsonDict:
-        resp = session.get(url)
+        resp = session.get(url, timeout=_request_timeout(session))
         _raise_for_digicert_error(resp)
         return resp.json()
 
@@ -664,7 +663,9 @@ def download_issued_certificate(
     @cb_dec
     @retry_dec
     def _download() -> bytes:
-        resp = session.get(url, headers={"Accept": "application/zip"})
+        resp = session.get(
+            url, headers={"Accept": "application/zip"}, timeout=_request_timeout(session)
+        )
         _raise_for_digicert_error(resp)
         if not resp.content:
             raise DigiCertDownloadError(
@@ -775,7 +776,7 @@ def order_and_await_certificate(
     @cb_dec
     @retry_dec
     def _submit_order() -> JsonDict:
-        resp = session.post(url, json=order_body)
+        resp = session.post(url, json=order_body, timeout=_request_timeout(session))
         _raise_for_digicert_error(resp)
         return resp.json()
 
@@ -946,7 +947,7 @@ def revoke_certificate(
     @cb_dec
     @retry_dec
     def _revoke() -> JsonDict:
-        resp = session.put(url, json=revoke_body)
+        resp = session.put(url, json=revoke_body, timeout=_request_timeout(session))
         _raise_for_digicert_error(resp)
         # DigiCert returns 204 No Content on successful revocation.
         if resp.status_code == 204 or not resp.content:
@@ -983,7 +984,7 @@ def _resolve_certificate_id_from_order(
     @cb_dec
     @retry_dec
     def _fetch() -> JsonDict:
-        resp = session.get(url)
+        resp = session.get(url, timeout=_request_timeout(session))
         _raise_for_digicert_error(resp)
         return resp.json()
 
@@ -1072,7 +1073,7 @@ def duplicate_certificate(
     @cb_dec
     @retry_dec
     def _submit_duplicate() -> JsonDict:
-        resp = session.post(url, json=dup_body)
+        resp = session.post(url, json=dup_body, timeout=_request_timeout(session))
         _raise_for_digicert_error(resp)
         return resp.json()
 

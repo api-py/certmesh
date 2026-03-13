@@ -653,11 +653,12 @@ def wait_for_issuance(
     )
 
     elapsed = 0
+    last_status = "UNKNOWN"
     while elapsed < max_wait:
         detail = describe_certificate(acm_cfg, certificate_arn)
-        status = detail.status
+        last_status = detail.status
 
-        if status == "ISSUED":
+        if last_status == "ISSUED":
             logger.info(
                 "ACM: certificate '%s' is now ISSUED (waited %ds).",
                 short_id,
@@ -665,17 +666,17 @@ def wait_for_issuance(
             )
             return detail
 
-        if status in _TERMINAL_STATUSES and status != "ISSUED":
+        if last_status in _TERMINAL_STATUSES and last_status != "ISSUED":
             reason = detail.failure_reason or "no failure reason provided"
             raise ACMValidationError(
                 f"Certificate '{certificate_arn}' reached terminal status "
-                f"'{status}' after {elapsed}s: {reason}."
+                f"'{last_status}' after {elapsed}s: {reason}."
             )
 
         logger.debug(
             "ACM: certificate '%s' status='%s', waiting %ds (elapsed=%ds/%ds).",
             short_id,
-            status,
+            last_status,
             interval,
             elapsed,
             max_wait,
@@ -685,8 +686,7 @@ def wait_for_issuance(
 
     raise ACMValidationError(
         f"Timed out after {max_wait}s waiting for certificate "
-        f"'{certificate_arn}' to be issued.  Last status: "
-        f"{describe_certificate(acm_cfg, certificate_arn).status}."
+        f"'{certificate_arn}' to be issued.  Last status: {last_status}."
     )
 
 

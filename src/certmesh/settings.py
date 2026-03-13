@@ -265,7 +265,7 @@ def _env_overrides() -> JsonDict:
     _sset(
         overrides,
         ["digicert", "certificate", "validity_years"],
-        _int(e("CM_DIGICERT_VALIDITY_DAYS")),
+        _int(e("CM_DIGICERT_VALIDITY_YEARS")),
     )
     _sset(overrides, ["digicert", "certificate", "organization_id"], e("CM_DIGICERT_ORG_ID"))
     _sset(
@@ -406,7 +406,14 @@ def _validate_digicert(digicert: JsonDict) -> None:
 
 
 def _validate_venafi(venafi: JsonDict) -> None:
-    if not venafi.get("base_url"):
+    # venafi.base_url is only required when the venafi section has been
+    # explicitly configured (auth_method overridden or output destination set).
+    # This avoids failing validation for users who only use ACM or DigiCert.
+    has_venafi_config = (
+        venafi.get("auth_method") != "oauth"
+        or venafi.get("output", {}).get("destination", "filesystem") != "filesystem"
+    )
+    if has_venafi_config and not venafi.get("base_url"):
         raise ConfigurationError("venafi.base_url is required. Set CM_VENAFI_BASE_URL.")
     auth_method: str = venafi.get("auth_method", "oauth")
     if auth_method not in _VENAFI_AUTH_METHODS:

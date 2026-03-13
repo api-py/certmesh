@@ -467,6 +467,10 @@ def _poll_certificate_ready(
                 )
                 return
         else:
+            # Permanent client errors (except 404/503) should abort immediately
+            # rather than wasting the full polling timeout.
+            if 400 <= resp.status_code < 500 and resp.status_code not in (404, 408, 429):
+                _raise_for_status(resp, f"Poll certificate DN='{certificate_dn}'")
             logger.warning(
                 "Poll DN='%s': HTTP %d (will retry).",
                 certificate_dn,
@@ -624,13 +628,12 @@ def renew_and_download_certificate(
     def _inner() -> CertificateBundle:
         # ----- 1. Initiate renewal -----
         renew_url = f"{base}/vedsdk/certificates/renew"
-        renew_payload: JsonDict = {"CertificateDN": f"\\VED\\Policy\\{certificate_guid}"}
-
-        # Also try the GUID-based form which is more common
         if _is_guid(certificate_guid):
-            renew_payload = {"CertificateDN": certificate_guid}
-            # Some TPP versions use a separate GUID field
-            renew_payload = {"CertificateGUID": f"{{{certificate_guid}}}"}
+            renew_payload: JsonDict = {
+                "CertificateGUID": f"{{{certificate_guid}}}",
+            }
+        else:
+            renew_payload: JsonDict = {"CertificateDN": f"\\VED\\Policy\\{certificate_guid}"}
 
         resp = session.post(renew_url, json=renew_payload, timeout=timeout)
         _raise_for_status(resp, f"Renew certificate GUID='{certificate_guid}'")
@@ -1174,7 +1177,12 @@ def request_certificate(
 
         if use_csr:
             # Client-side key — download only the signed certificate
-            assert private_key_pem_bytes is not None
+            if private_key_pem_bytes is None:
+                raise VenafiAPIError(
+                    "Internal error: private key bytes were not generated for "
+                    "client-side CSR request.",
+                    status_code=0,
+                )
             cert_pem_str = _download_base64_cert(
                 session,
                 base,
@@ -1230,10 +1238,13 @@ def request_certificate(
 
 
 def _is_guid(value: str) -> bool:
-    """Return ``True`` if ``value`` looks like a GUID / UUID."""
+    """Return ``True`` if ``value`` looks like a GUID / UUID (8-4-4-4-12)."""
     stripped = value.strip("{}")
     parts = stripped.split("-")
-    return len(parts) == 5 and all(len(p) in (8, 4, 4, 4, 12) for p in parts)
+    if len(parts) != 5:
+        return False
+    expected_lengths = (8, 4, 4, 4, 12)
+    return all(len(p) == expected_lengths[i] for i, p in enumerate(parts))
 
 
 def _resolve_dn_from_guid(

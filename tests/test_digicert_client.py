@@ -177,16 +177,14 @@ class TestRaiseForDigicertError:
         with pytest.raises(DigiCertRateLimitError, match="rate limit"):
             _raise_for_digicert_error(resp)
 
-    def test_429_with_retry_after_sleeps(self) -> None:
+    def test_429_with_retry_after_logs_and_raises(self) -> None:
         resp = _make_response(
             status_code=429,
             text="Too Many Requests",
             headers={"Retry-After": "2"},
         )
-        with patch("certmesh.digicert_client.time.sleep") as mock_sleep:
-            with pytest.raises(DigiCertRateLimitError):
-                _raise_for_digicert_error(resp)
-            mock_sleep.assert_called_once_with(2)
+        with pytest.raises(DigiCertRateLimitError):
+            _raise_for_digicert_error(resp)
 
     def test_429_with_non_numeric_retry_after(self) -> None:
         resp = _make_response(
@@ -194,10 +192,8 @@ class TestRaiseForDigicertError:
             text="Too Many Requests",
             headers={"Retry-After": "not-a-number"},
         )
-        with patch("certmesh.digicert_client.time.sleep") as mock_sleep:
-            with pytest.raises(DigiCertRateLimitError):
-                _raise_for_digicert_error(resp)
-            mock_sleep.assert_not_called()
+        with pytest.raises(DigiCertRateLimitError):
+            _raise_for_digicert_error(resp)
 
     def test_500_raises_api_error(self) -> None:
         resp = _make_response(status_code=500, text="Internal Server Error")
