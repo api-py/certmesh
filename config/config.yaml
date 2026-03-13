@@ -1,0 +1,141 @@
+# =============================================================================
+# certmesh configuration
+#
+# All runtime parameters are sourced from this file.  Sensitive credentials
+# are NEVER stored here; they are read from HashiCorp Vault or CM_*
+# environment variables.
+# =============================================================================
+
+vault:
+  url: "https://vault.example.com"
+  auth_method: "approle"
+
+  approle:
+    role_id_env: "CM_VAULT_ROLE_ID"
+    secret_id_env: "CM_VAULT_SECRET_ID"
+
+  ldap:
+    username_env: "CM_VAULT_LDAP_USERNAME"
+    password_env: "CM_VAULT_LDAP_PASSWORD"
+    mount_point: "ldap"
+
+  aws_iam:
+    role: "certmesh"
+    mount_point: "aws"
+
+  pki:
+    mount_point: "pki"
+    role_name: "certmesh-issuer"
+    ttl: "8760h"
+
+  paths:
+    digicert_api_key: "secret/certmesh/digicert/api_key"
+    venafi_credentials: "secret/certmesh/venafi/credentials"
+
+  tls_verify: true
+  timeout_seconds: 30
+
+digicert:
+  base_url: "https://www.digicert.com/services/v2"
+  timeout_seconds: 30
+
+  output:
+    destination: "filesystem"
+    base_path: "/etc/certmesh/tls/digicert"
+    cert_filename: "{order_id}_cert.pem"
+    key_filename: "{order_id}_key.pem"
+    chain_filename: "{order_id}_chain.pem"
+    vault_path_template: "secret/certmesh/tls/digicert/{order_id}"
+
+  certificate:
+    key_size: 4096
+    subject:
+      country: "US"
+      state: ""
+      locality: ""
+      organisation: ""
+      organisational_unit: ""
+    product_name_id: "ssl_plus"
+    validity_years: 1
+    signature_hash: "sha256"
+
+  polling:
+    interval_seconds: 15
+    max_wait_seconds: 1800
+
+  retry:
+    max_attempts: 5
+    wait_min_seconds: 2
+    wait_max_seconds: 60
+    wait_multiplier: 1.5
+
+  circuit_breaker:
+    failure_threshold: 5
+    recovery_timeout_seconds: 120
+
+venafi:
+  base_url: "https://venafi.example.com"
+  auth_method: "oauth"
+  oauth_client_id: "certapi"
+  oauth_scope: "certificate:manage"
+  tls_verify: true
+  timeout_seconds: 30
+
+  output:
+    destination: "filesystem"
+    base_path: "/etc/certmesh/tls/venafi"
+    cert_filename: "{guid}_cert.pem"
+    key_filename: "{guid}_key.pem"
+    chain_filename: "{guid}_chain.pem"
+    vault_path_template: "secret/certmesh/tls/venafi/{guid}"
+
+  certificate:
+    key_size: 4096
+    pkcs12_export_passphrase_env: "CM_VENAFI_PKCS12_PASSPHRASE"
+
+  approval:
+    reason: "Automated renewal approved by certmesh"
+
+  polling:
+    interval_seconds: 15
+    max_wait_seconds: 1800
+
+  retry:
+    max_attempts: 5
+    wait_min_seconds: 2
+    wait_max_seconds: 60
+    wait_multiplier: 1.5
+
+  circuit_breaker:
+    failure_threshold: 5
+    recovery_timeout_seconds: 120
+
+acm:
+  region: "us-east-1"
+  timeout_seconds: 30
+
+  output:
+    destination: "filesystem"
+    base_path: "/etc/certmesh/tls/acm"
+    cert_filename: "{cert_arn_short}_cert.pem"
+    key_filename: "{cert_arn_short}_key.pem"
+    chain_filename: "{cert_arn_short}_chain.pem"
+
+  certificate:
+    key_algorithm: "RSA_2048"
+    validation_method: "DNS"
+
+  private_ca:
+    ca_arn: ""
+    signing_algorithm: "SHA256WITHRSA"
+    validity_days: 365
+    template_arn: ""
+
+  polling:
+    interval_seconds: 10
+    max_wait_seconds: 600
+
+logging:
+  level: "INFO"
+  format: "%(asctime)s [%(levelname)s] %(name)s - %(funcName)s:%(lineno)d - %(message)s"
+  datefmt: "%Y-%m-%dT%H:%M:%S"
